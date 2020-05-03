@@ -14,6 +14,8 @@ isReStart = False
 isReStop = False
 isReReset = False
 isReRelease = False
+sendingDataToArduino = False
+
 
 ####### MQTT ##########################
 #def on_connect(client,userdata,rc):
@@ -60,7 +62,7 @@ def loopMqtt():
 mqttClient = mqtt.Client(client_id='esp', clean_session=False)
 mqttClient.on_connect = on_connect
 mqttClient.on_message = on_message	
-mqttClient.connect(host='192.168.1.11', port=1883,keepalive=60)
+mqttClient.connect(host='192.168.0.6', port=1883,keepalive=60)
 mqttClient.loop_start()
 #mqttThread = threading.Thread(target=loopMqtt, args=())
 #mqttThread.start()
@@ -73,7 +75,14 @@ ser = serial.Serial(
     parity=serial.PARITY_NONE,\
     stopbits=serial.STOPBITS_ONE,\
     bytesize=serial.EIGHTBITS,\
-        timeout=1)
+        timeout=1, \
+     xonxoff=0, \
+    rtscts=0)
+
+ser.setDTR(False)
+ser.setRTS(False)
+#time.sleep(1)
+#ser.setDTR(True)
 
 print("connected to: " + ser.portstr)
 
@@ -84,11 +93,19 @@ bufferSerial = []
 
 
 def processMessage(message):
+	global sendingDataToArduino
 	subitems = message.split(":")
 	if(subitems[0] == "r"):
-		sendStatusToSerial()
+		if(not sendingDataToArduino):
+			sendingDataToArduino = True
+			sendStatusToSerial()
+			time.sleep(0.01)
+			sendingDataToArduino = False
+		#pass
 	elif(subitems[0] == "s"):
 		sendDataToBroker(subitems[1:3])
+	elif(subitems[0] == "i"):
+		print("starting")
 
 def sendStatusToSerial():
 	global countingModel
@@ -140,6 +157,7 @@ def sendStatusToSerial():
 def sendDataToBroker(item):
 	topic = item[0]
 	message = item[1]
+	print(topic + " : " + message)
 	mqttClient.publish(topic,message)
 	#print(topic+":"+message)
 	
