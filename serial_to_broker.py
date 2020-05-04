@@ -3,7 +3,14 @@ import threading
 import paho.mqtt.client as mqtt
 import time
 import sys
+from serial.tools import list_ports
+
 sys.stdout.flush()
+
+
+
+
+brokerIP = "192.168.1.11"
 
 runScript = True
 
@@ -62,35 +69,15 @@ def loopMqtt():
 mqttClient = mqtt.Client(client_id='esp', clean_session=False)
 mqttClient.on_connect = on_connect
 mqttClient.on_message = on_message	
-mqttClient.connect(host='192.168.0.6', port=1883,keepalive=60)
+mqttClient.connect(host=brokerIP, port=1883,keepalive=60)
 mqttClient.loop_start()
 #mqttThread = threading.Thread(target=loopMqtt, args=())
 #mqttThread.start()
 
 
-
-ser = serial.Serial(
-    port='/dev/ttyACM0',\
-    baudrate=115200,\
-    parity=serial.PARITY_NONE,\
-    stopbits=serial.STOPBITS_ONE,\
-    bytesize=serial.EIGHTBITS,\
-        timeout=1, \
-     xonxoff=0, \
-    rtscts=0)
-
-ser.setDTR(False)
-ser.setRTS(False)
-#time.sleep(1)
-#ser.setDTR(True)
-
-print("connected to: " + ser.portstr)
-
+ser = None
 #this will store the line
 bufferSerial = []
-
-
-
 
 def processMessage(message):
 	global sendingDataToArduino
@@ -157,33 +144,76 @@ def sendStatusToSerial():
 def sendDataToBroker(item):
 	topic = item[0]
 	message = item[1]
-	print(topic + " : " + message)
+	#print(topic + " : " + message)
 	mqttClient.publish(topic,message)
 	#print(topic+":"+message)
 	
+def getListPorts():
+	ports = list_ports.comports()
+	subPorts = []
+	for port, desc, hwid in sorted(ports):
+			if(port.startswith("/dev/ttyACM")):
+				subPorts.append(port)
+			if(port.startswith("/dev/ttyUSB")):
+				subPorts.append(port)
+	return subPorts
+	
+def connectToSerial():
+	global ser
+	serialPorts = getListPorts()
+	
+	for port in serialPorts:
+		try:
+			ser = serial.Serial(
+				port=port,\
+				baudrate=115200,\
+				parity=serial.PARITY_NONE,\
+				stopbits=serial.STOPBITS_ONE,\
+				bytesize=serial.EIGHTBITS,\
+					timeout=1, \
+				 xonxoff=0, \
+				rtscts=0)
 
+			ser.setDTR(False)
+			ser.setRTS(False)
+			ser.flush()
+			print("connected to: " + ser.portstr)
+			break
+			#time.sleep(1)
+			#ser.setDTR(True)
+		except Exception as e:
+			pass
+
+	
+	
+connectToSerial()
 try:
 	recvInProgress = False
 	startMarker = '<'
 	endMarker = '>'
     
 	while runScript:
-		for c in ser.read():
-			try:
-				c = chr(c)  ##For python3
-			except:
-				pass
-			if(recvInProgress):
-				if(c == endMarker):
-					threading.Thread(target=processMessage, args=(''.join(bufferSerial),)).start()
-					bufferSerial = []
-					recvInProgress = False
+		try:
+			for c in ser.read():
+				try:
+					c = chr(c)  ##For python3
+				except:
+					pass
+				if(recvInProgress):
+					if(c == endMarker):
+						threading.Thread(target=processMessage, args=(''.join(bufferSerial),)).start()
+						bufferSerial = []
+						recvInProgress = False
+					else:
+						bufferSerial.append(c)
 				else:
-					bufferSerial.append(c)
-			else:
-				if(c == startMarker):
-					recvInProgress = True
-					
+					if(c == startMarker):
+						recvInProgress = True
+		except serial.serialutil.SerialException:
+			print("serialError")
+			connectToSerial()
+			time.sleep(5)
+			#raise Exception("Sorry, no numbers below zero")
 except Exception as e:
 	print(e)
 	runScript = False
